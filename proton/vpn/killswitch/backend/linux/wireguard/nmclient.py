@@ -21,7 +21,7 @@ along with ProtonVPN.  If not, see <https://www.gnu.org/licenses/>.
 """
 from concurrent.futures import Future
 from threading import Thread, Lock
-from typing import Optional
+from typing import Optional, List
 
 from packaging.version import Version
 
@@ -183,6 +183,134 @@ class NMClient:
 
         return future_conn_activated
 
+    def get_physical_devices(self) -> List[NM.Device]:
+        """Returns all the active ethernet/wifi devices."""
+        return [
+            device for device in self._nm_client.get_devices() if (
+                device.get_device_type() in (NM.DeviceType.ETHERNET, NM.DeviceType.WIFI) and
+                device.get_state() is NM.DeviceState.ACTIVATED and
+                device.get_active_connection()  # Maybe this is redundant.
+            )
+        ]
+
+    @classmethod
+    def _get_ipv4_gateway_from(cls, device: NM.Device) -> str:
+        cls._assert_running_on_glib_loop_thread()
+
+        connection = device.get_active_connection().get_connection()
+        config = connection.get_setting_ip4_config()
+        gateway = config.get_gateway()
+
+        if not gateway:
+            # If a static gateway is not found, try to get it from the DHCP config.
+            dhcp_config = device.get_dhcp4_config()
+            if dhcp_config and "routers" in dhcp_config.get_options():
+                gateway = dhcp_config.get_options()["routers"]
+                # There may be multiple gateways separated by comma. We get the first one
+                gateway = gateway.split(",")[0].strip()
+
+        if not gateway:
+            raise RuntimeError(f"Gateway not found for interface {device.get_iface()}")
+
+        return gateway
+
+    @classmethod
+    def _add_ipv4_route(cls, device, server_ip: str, gateway: str) -> NM.RemoteConnection:
+        cls._assert_running_on_glib_loop_thread()
+
+        connection = device.get_active_connection().get_connection()
+        config = connection.get_setting_ip4_config()
+
+        config.add_route(
+            NM.IPRoute.new(
+                family=GLib.SYSDEF_AF_INET,
+                dest=server_ip,
+                prefix=32,
+                next_hop=gateway,
+                metric=-1  # -1 just means that the default metric is applied.
+            )
+        )
+
+        return connection
+
+    @classmethod
+    def _remove_ipv4_routes(cls, device, server_ip: str) -> NM.RemoteConnection:
+        cls._assert_running_on_glib_loop_thread()
+
+        connection = device.get_active_connection().get_connection()
+        config = connection.get_setting_ip4_config()
+
+        routes_to_remove = []
+        for i in range(config.get_num_routes()):
+            route = config.get_route(i)
+            if route.get_dest() == server_ip and route.get_prefix() == 32:
+                routes_to_remove.append(route)
+
+        for route in routes_to_remove:
+            config.remove_route_by_value(route)
+
+        return connection
+
+    @classmethod
+    def _apply_connection(cls, device: NM.Device, connection: NM.RemoteConnection):
+        cls._assert_running_on_glib_loop_thread()
+
+        # FIXME: use commit_changes_async and reapply_async.  # pylint: disable=fixme
+        # By not saving the changes to disk, the route is gone after a restart.
+        connection.commit_changes(save_to_disk=False, cancellable=None)
+        device.reapply(
+            # Not sure if it's ok to always pass version_id and flags set to 0.
+            connection, version_id=0, flags=0,
+            cancellable=None
+        )
+
+    @classmethod
+    def add_route_to_device(
+            cls, device: NM.Device, new_server_ip: str, old_server_ip: Optional[str] = None
+    ) -> Future:
+        """
+        Adds a route to the device to reach the new server ip via the gateway configured
+        on the device.
+
+        :param device: the device to apply the route to.
+        :param new_server_ip: the IP to apply the route for.
+        :param old_server_ip: if specified, routes for this IP will be removed before
+          adding the new one.
+        """
+        future = Future()
+
+        def _add_ipv4_route():
+            if old_server_ip:
+                print(f"removing route to {old_server_ip}")
+                cls._remove_ipv4_routes(device, old_server_ip)
+                print("route removed")
+
+            gateway = cls._get_ipv4_gateway_from(device)
+            connection = cls._add_ipv4_route(device, new_server_ip, gateway)
+            cls._apply_connection(device, connection)
+            future.set_result(None)
+
+        cls._run_on_glib_loop_thread(_add_ipv4_route)
+
+        return future
+
+    @classmethod
+    def remove_route_from_device(cls, device: NM.Device, server_ip: str) -> Future:
+        """
+        Removes all the routes pointing to the specified server IP
+        for the specified device.
+        """
+        future = Future()
+
+        def _remove_ipv4_routes():
+            connection = cls._remove_ipv4_routes(device, server_ip)
+            cls._apply_connection(device, connection)
+            future.set_result(None)
+
+        cls._run_on_glib_loop_thread(_remove_ipv4_routes)
+
+        return future
+
     def remove_connection_async(
             self, connection: NM.RemoteConnection
     ) -> Future:
@@ -297,11 +425,11 @@ class NMClient:
             cancellable=None
         )
 
-    def _dbus_set_property(
+    def _dbus_set_property(  # pylint: disable=too-many-arguments
             self, *userdata, object_path: str, interface_name: str, property_name: str,
             value: GLib.Variant, timeout_msec: int = -1,
             cancellable: Gio.Cancellable = None,
-    ) -> Future:  # pylint: disable=too-many-arguments
+    ) -> Future:
         """Set NM properties since dedicated methods have been deprecated deprecated.
         Source: https://lazka.github.io/pgi-docs/#NM-1.0/classes/Client.html"""  # noqa
 

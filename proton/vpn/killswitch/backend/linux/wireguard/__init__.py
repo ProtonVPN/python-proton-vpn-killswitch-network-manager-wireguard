@@ -19,7 +19,4 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with ProtonVPN.  If not, see <https://www.gnu.org/licenses/>.
 """
-from proton.vpn.killswitch.backend.linux.networkmanager.nmkillswitch import NMKillSwitch
-
-
-__all__ = ["NMKillSwitch"]
+from proton.vpn.killswitch.backend.linux.wireguard.wgkillswitch import WGKillSwitch  # noqa: F401

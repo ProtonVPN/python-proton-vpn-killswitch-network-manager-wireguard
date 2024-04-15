@@ -1,5 +1,5 @@
-%define unmangled_name proton-vpn-killswitch-network-manager
-%define version 0.4.3
+%define unmangled_name proton-vpn-killswitch-network-manager-wireguard
+%define version 0.0.1
 %define release 1
 
 Prefix: %{_prefix}
@@ -48,33 +48,9 @@ python3 setup.py install --single-version-externally-managed -O1 --root=$RPM_BUI
 
 %files -f INSTALLED_FILES
 %{python3_sitelib}/proton/
-%{python3_sitelib}/proton_vpn_killswitch_network_manager-%{version}*.egg-info/
+%{python3_sitelib}/proton_vpn_killswitch_network_manager_wireguard-%{version}*.egg-info/
 %defattr(-,root,root)
 
 %changelog
-* Wed Mar 06 2024 Josep Llaneras <josep.llaneras@proton.ch> 0.4.3
-- Fix crash on older distros when disabling connectivity checking
-
-* Wed Feb 21 2024 Josep Llaneras <josep.llaneras@proton.ch> 0.4.2
-- Keep same old kill switch connection ids
-
-* Tue Feb 20 2024 Josep Llaneras <josep.llaneras@proton.ch> 0.4.1
-- Fix switching between non-permanent and permanent KS
-
-* Thu Feb 08 2024 Josep Llaneras <josep.llaneras@proton.ch> 0.4.0
-- Add permanent kill switch
-
-* Wed Feb 07 2024 Josep Llaneras <josep.llaneras@proton.ch> 0.3.0
-- Wait for target interface state when adding/removing NM connections
-
-* Mon Sep 04 2023 Alexandru Cheltuitor <alexandru.cheltuitor@proton.ch> 0.2.0
-- Implement kill switch
-
-* Tue Apr 04 2023 Alexandru Cheltuitor <alexandru.cheltuitor@proton.ch> 0.1.1
-- Rely on NMClient for connection handling
-
-* Thu Mar 23 2023 Alexandru Cheltuitor <alexandru.cheltuitor@proton.ch> 0.1.0
-- Implement IPv6 leak protection
-
-* Wed Jun 1 2022 Proton Technologies AG <opensource@proton.me> 0.0.1
-- First RPM release
+* Fri Apr 12 2024 Josep Llaneras <josep.llaneras@proton.ch> 0.0.1
+- Adapt kill switch to wireguard protocol

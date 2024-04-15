@@ -24,26 +24,26 @@ import asyncio
 import concurrent.futures
 
 from proton.vpn import logging
-from proton.vpn.killswitch.backend.linux.networkmanager.nmclient import NMClient
-from proton.vpn.killswitch.backend.linux.networkmanager.killswitch_connection import (
+from proton.vpn.killswitch.backend.linux.wireguard.nmclient import NMClient
+from proton.vpn.killswitch.backend.linux.wireguard.killswitch_connection import (
     KillSwitchConnection, KillSwitchGeneralConfig, KillSwitchIPConfig
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _get_connection_id(permanent: bool, ipv6: bool = False, routed: bool = False):
+def _get_connection_id(permanent: bool, ipv6: bool = False):
     if ipv6:
         return f"pvpn-killswitch-ipv6{'-perm' if permanent else ''}"
 
-    return f"pvpn{'-routed' if routed else ''}-killswitch{'-perm' if permanent else ''}"
+    return f"pvpn-killswitch{'-perm' if permanent else ''}"
 
 
-def _get_interface_name(permanent: bool, ipv6: bool = False, routed: bool = False):
+def _get_interface_name(permanent: bool, ipv6: bool = False):
     if ipv6:
         return f"ipv6leakintrf{'1' if permanent else '0'}"
 
-    return f"{'pvpnrouteintrf' if routed else 'pvpnksintrf'}{'1' if permanent else '0'}"
+    return f"pvpnksintrf{'1' if permanent else '0'}"
 
 
 async def _wrap_future(future: concurrent.futures.Future, timeout=5):
@@ -106,10 +106,11 @@ class KillSwitchConnectionHandler:
         """Returns if connectivity_check property is enabled or not."""
         return self.nm_client.connectivity_check_get_enabled()
 
-    async def add_full_killswitch_connection(self, permanent: bool):
-        """Adds full kill switch connection to Network Manager. This connection blocks all
-        outgoing traffic when not connected to VPN, with the exception of torrent client which will
-        require to be bonded to the VPN interface.."""
+    async def add_kill_switch_connection(self, permanent: bool):
+        """Adds a dummy connection that swallows all traffic it receives.
+
+        This dummy connection has more priority than an ethernet/wifi
+        interface but with less priority than the VPN connection."""
         await self._ensure_connectivity_check_is_disabled()
 
         connection_id = _get_connection_id(permanent)
@@ -141,33 +142,33 @@ class KillSwitchConnectionHandler:
         )
         logger.debug(f"{'Non-permanent' if permanent else 'Permanent'} kill switch removed.")
 
-    async def add_routed_killswitch_connection(self, server_ip: str, permanent: bool):
-        """Add routed kill switch connection to Network Manager.
-
-        This connection has a "hole punched in it", to allow only the server IP to
-        access the outside world while blocking all other outgoing traffic. This is only
-        temporary though as it will be removed once we establish a VPN connection and will
-        get replaced by the full kill switch connection.
-        """
+    async def add_vpn_server_route(self, new_server_ip: str, old_server_ip: str = None):
+        """Add route to allow outgoing traffic to the specified IP."""
         await self._ensure_connectivity_check_is_disabled()
 
-        general_config = KillSwitchGeneralConfig(
-            human_readable_id=_get_connection_id(permanent, routed=True),
-            interface_name=_get_interface_name(permanent, routed=True)
-        )
-        kill_switch = KillSwitchConnection(
-            general_config,
-            ipv4_settings=self._get_ipv4_ks_settings(server_ip),
-            ipv6_settings=self._ipv6_ks_settings,
-        )
-        await _wrap_future(
-            self.nm_client.add_connection_async(kill_switch.connection, save_to_disk=permanent)
-        )
-        logger.debug("Routed kill switch added.")
+        devices = self.nm_client.get_physical_devices()
+        for device in devices:
+            await _wrap_future(
+                self.nm_client.add_route_to_device(
+                    device, new_server_ip=new_server_ip, old_server_ip=old_server_ip
+                )
+            )
+        logger.debug("VPN server route added.")
+
+    async def remove_vpn_server_route(self, server_ip: str):
+        """
+        Remove a previously added VPN server route.
+        If the route is not found then nothing happens.
+        """
+        devices = self.nm_client.get_physical_devices()
+        for device in devices:
+            await _wrap_future(
+                self.nm_client.remove_route_from_device(device, server_ip)
+            )
+        logger.debug("VPN server route removed.")
 
     async def add_ipv6_leak_protection(self):
-        """Adds IPv6 kill switch to NetworkManager. This connection is mainly
-        to prevent IPv6 leaks while using IPv4."""
+        """Adds IPv6 kill switch to prevent IPv6 leaks while using IPv4."""
         await self._ensure_connectivity_check_is_disabled()
 
         connection_id = _get_connection_id(permanent=False, ipv6=True)
@@ -195,19 +196,12 @@ class KillSwitchConnectionHandler:
         )
         logger.debug("IPv6 leak protection added.")
 
-    async def remove_full_killswitch_connection(self):
+    async def remove_killswitch_connection(self):
         """Removes full kill switch connection."""
         logger.debug("Removing full kill switch...")
         await self._remove_connection(_get_connection_id(permanent=True))
         await self._remove_connection(_get_connection_id(permanent=False))
         logger.debug("Full kill switch removed.")
-
-    async def remove_routed_killswitch_connection(self):
-        """Removes routed kill switch connection."""
-        logger.debug("Removing routed kill switch...")
-        await self._remove_connection(_get_connection_id(permanent=True, routed=True))
-        await self._remove_connection(_get_connection_id(permanent=False, routed=True))
-        logger.debug("Routed kill switch removed.")
 
     async def remove_ipv6_leak_protection(self):
         """Removes IPv6 kill switch connection."""

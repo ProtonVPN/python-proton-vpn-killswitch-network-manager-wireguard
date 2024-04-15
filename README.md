@@ -1,7 +1,7 @@
-# ProtonVPN Kill Switch Network Manager
+# Proton VPN Kill Switch for Wireguard
 
-The `proton-vpn-killswitch-network-manager` component is the implementation of the `proton-vpn-killswitch` interface
-using [Network Manager](https://www.networkmanager.dev).
+The `proton-vpn-killswitch-networ-managerwireguard` component is the implementation of the `proton-vpn-killswitch`
+interface adapted for Wireguard.
 
 ## Development
 

@@ -1,53 +1,5 @@
-proton-vpn-killswitch-network-manager (0.4.3) unstable; urgency=medium
+proton-vpn-killswitch-network-manager-wireguard (0.0.1) unstable; urgency=medium
 
-  * Fix crash on older distros when disabling connectivity checking
+  * Adapt kill switch to wireguard protocol
 
- -- Josep Llaneras <josep.llaneras@proton.ch>  Wed, 06 Mar 2024 10:27:51 +0100
-
-proton-vpn-killswitch-network-manager (0.4.2) unstable; urgency=medium
-
-  * Keep same old kill switch connection ids
-
- -- Josep Llaneras <josep.llaneras@proton.ch>  Wed, 21 Feb 2024 16:29:38 +0100
-
-proton-vpn-killswitch-network-manager (0.4.1) unstable; urgency=medium
-
-  * Fix switching between non-permanent and permanent KS
-
- -- Josep Llaneras <josep.llaneras@proton.ch>  Tue, 20 Feb 2024 11:13:19 +0100
-
-proton-vpn-killswitch-network-manager (0.4.0) unstable; urgency=medium
-
-  * Add permanent kill switch
-
- -- Josep Llaneras <josep.llaneras@proton.ch>  Thu, 08 Feb 2024 12:21:35 +0100
-
-proton-vpn-killswitch-network-manager (0.3.0) unstable; urgency=medium
-
-  * Wait for target interface state when adding/removing NM connections
-
- -- Josep Llaneras <josep.llaneras@proton.ch>  Wed, 07 Feb 2024 11:06:47 +0100
-
-proton-vpn-killswitch-network-manager (0.2.0) UNRELEASED; urgency=medium
-
-  * Implement kill switch
-
- -- Alexandru Cheltuitor <alexandru.cheltuitor@proton.ch>  Mon, 04 Sep 2023 11:00:00 +0100
-
-proton-vpn-killswitch-network-manager (0.1.1) UNRELEASED; urgency=medium
-
-  * Rely on NMClient for connection handling
-
- -- Alexandru Cheltuitor <alexandru.cheltuitor@proton.ch>  Tue, 04 Apr 2023 10:00:00 +0100
-
-proton-vpn-killswitch-network-manager (0.1.0) UNRELEASED; urgency=medium
-
-  * Implement IPv6 leak protection
-
- -- Alexandru Cheltuitor <alexandru.cheltuitor@proton.ch>  Thu, 23 Mar 2023 10:00:00 +0100
-
-proton-vpn-killswitch-network-manager (0.0.1) UNRELEASED; urgency=medium
-
-  * First release
-
- -- Proton Technologies AG <opensource@proton.me>  Wed, 18 May 2022 10:01:37 +0100
+ -- Josep Llaneras <josep.llaneras@proton.ch>  Fri, 12 Apr 2024 16:00:00 +0200

@@ -19,7 +19,7 @@ along with ProtonVPN.  If not, see <https://www.gnu.org/licenses/>.
 from unittest.mock import Mock, AsyncMock, call
 import pytest
 
-from proton.vpn.killswitch.backend.linux.networkmanager import NMKillSwitch
+from proton.vpn.killswitch.backend.linux.wireguard import WGKillSwitch
 
 
 @pytest.fixture
@@ -31,50 +31,40 @@ def vpn_server():
 
 
 @pytest.mark.asyncio
-async def test_enable_without_vpn_server_adds_full_ks_and_removes_routed_ks():
+async def test_enable_without_vpn_server_adds_ks_connection():
     ks_handler_mock = AsyncMock()
-    nm_killswitch = NMKillSwitch(ks_handler_mock)
+    nm_killswitch = WGKillSwitch(ks_handler_mock)
 
     await nm_killswitch.enable()
 
     assert ks_handler_mock.method_calls == [
-        call.add_full_killswitch_connection(False),
-        call.remove_routed_killswitch_connection(),
+        call.add_kill_switch_connection(False)
     ]
 
 
 @pytest.mark.asyncio
-async def test_enable_with_vpn_server(vpn_server):
-    """
-    When enabling the KS specifying a vpn server to connect to we expect:
-     1) The full KS is added first, to block all network traffic until the routed KS is set up.
-     2) The routed KS is removed (if found).
-     2) A new routed KS whitelisting the VPN server IP is added.
-     4) The full KS is removed to let the routed KS take over.
-    """
+async def test_enable_with_vpn_server_adds_ks_connection_and_route_for_server(vpn_server):
     ks_handler_mock = AsyncMock()
-    nm_killswitch = NMKillSwitch(ks_handler_mock)
+    nm_killswitch = WGKillSwitch(ks_handler_mock)
 
     await nm_killswitch.enable(vpn_server)
 
     assert ks_handler_mock.method_calls == [
-        call.add_full_killswitch_connection(False),
-        call.remove_routed_killswitch_connection(),
-        call.add_routed_killswitch_connection(vpn_server.server_ip, False),
-        call.remove_full_killswitch_connection()
+        call.add_kill_switch_connection(False),
+        call.add_vpn_server_route(new_server_ip=vpn_server.server_ip, old_server_ip=None)
     ]
 
 
 @pytest.mark.asyncio
-async def test_disable_killswitch_removes_full_and_routed_ks():
+async def test_disable_killswitch_removes_full_and_route_for_server():
     ks_handler_mock = AsyncMock()
-    nm_killswitch = NMKillSwitch(ks_handler_mock)
+    nm_killswitch = WGKillSwitch(ks_handler_mock, server_ip="1.2.3.4")
 
     await nm_killswitch.disable()
 
     assert ks_handler_mock.method_calls == [
-        call.remove_full_killswitch_connection(),
-        call.remove_routed_killswitch_connection()
+        call.remove_killswitch_connection(),
+        call.remove_vpn_server_route("1.2.3.4")
     ]
 
 
@@ -82,7 +72,7 @@ async def test_disable_killswitch_removes_full_and_routed_ks():
 async def test_enable_ipv6_leak_protection_adds_ipv6_ks():
     ks_handler_mock = AsyncMock()
 
-    nm_killswitch = NMKillSwitch(ks_handler_mock)
+    nm_killswitch = WGKillSwitch(ks_handler_mock)
     await nm_killswitch.enable_ipv6_leak_protection()
 
     assert ks_handler_mock.method_calls == [
@@ -94,7 +84,7 @@ async def test_enable_ipv6_leak_protection_adds_ipv6_ks():
 async def test_disable_ipv6_leak_protection_removes_ipv6_ks():
     ks_handler_mock = AsyncMock()
 
-    nm_killswitch = NMKillSwitch(ks_handler_mock)
+    nm_killswitch = WGKillSwitch(ks_handler_mock)
     await nm_killswitch.disable_ipv6_leak_protection()
 
     assert ks_handler_mock.method_calls == [

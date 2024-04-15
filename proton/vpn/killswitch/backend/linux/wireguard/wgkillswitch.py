@@ -22,7 +22,7 @@ along with ProtonVPN.  If not, see <https://www.gnu.org/licenses/>.
 from typing import Optional, TYPE_CHECKING
 
 from proton.vpn.killswitch.interface import KillSwitch
-from proton.vpn.killswitch.backend.linux.networkmanager.killswitch_connection_handler\
+from proton.vpn.killswitch.backend.linux.wireguard.killswitch_connection_handler\
     import KillSwitchConnectionHandler
 from proton.vpn import logging
 
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class NMKillSwitch(KillSwitch):
+class WGKillSwitch(KillSwitch):
     """
     Kill Switch implementation using NetworkManager.
 
@@ -46,39 +46,46 @@ class NMKillSwitch(KillSwitch):
     primary VPN connection.
     """
 
-    def __init__(self, ks_handler: KillSwitchConnectionHandler = None):
+    def __init__(
+            self, ks_handler: KillSwitchConnectionHandler = None,
+            server_ip: Optional[int] = None
+    ):
         self._ks_handler = ks_handler or KillSwitchConnectionHandler()
         super().__init__()
+        self._server_ip = server_ip
 
     async def enable(
             self, vpn_server: Optional["VPNServer"] = None, permanent: bool = False
     ):  # noqa
-        """Enables general kill switch."""
-        # The full KS blocks all traffic except the one going to an already
-        # existing VPN interface.
-        await self._ks_handler.add_full_killswitch_connection(permanent)
-
-        # If the routed KS is already enabled then it needs to be removed.
-        # There is no way to just update it with the new VPN server IP.
-        await self._ks_handler.remove_routed_killswitch_connection()
+        """Enables the kill switch."""
+        # Block all traffic.
+        await self._ks_handler.add_kill_switch_connection(permanent)
 
         if not vpn_server:
             return
 
-        # The routed KS blocks all traffic except the one going to the specified VPN server IP.
-        await self._ks_handler.add_routed_killswitch_connection(vpn_server.server_ip, permanent)
+        # Allow traffic going to the VPN server IP.
+        await self._ks_handler.add_vpn_server_route(
+            new_server_ip=vpn_server.server_ip, old_server_ip=self._server_ip
+        )
+        self._server_ip = vpn_server.server_ip
 
-        # At this point the full KS is removed to allow establishing the new VPN connection
-        # to the specified server IP.
-        await self._ks_handler.remove_full_killswitch_connection()
+        # FIXME: a thread should be spawned to do periodic checks and to  # pylint: disable=fixme
+        #  reapply the route to the vpn server on each ethernet/wifi
+        #  interface if the gateway IP changed (e.g. when changing of network)
 
     async def disable(self):
         """Disables general kill switch."""
-        await self._ks_handler.remove_full_killswitch_connection()
-        await self._ks_handler.remove_routed_killswitch_connection()
+        await self._ks_handler.remove_killswitch_connection()
+        if self._server_ip:
+            await self._ks_handler.remove_vpn_server_route(self._server_ip)
+            self._server_ip = None
 
     async def enable_ipv6_leak_protection(self, permanent: bool = False):
         """Enables IPv6 kill switch."""
+        # Note that IPv6 leak protection is not required when using wireguard,
+        # since wireguard already prevents IPv6 leaks. IPv6 leak protection is
+        # added in case this kill switch implementation is also used on OpenVPN.
         await self._ks_handler.add_ipv6_leak_protection()
 
     async def disable_ipv6_leak_protection(self):
@@ -87,7 +94,9 @@ class NMKillSwitch(KillSwitch):
 
     @staticmethod
     def _get_priority() -> int:
-        return 100
+        # The priority value is higher than the previous KS implementation (100)
+        # so that this implementation takes precedence if both are installed.
+        return 200
 
     @staticmethod
     def _validate():

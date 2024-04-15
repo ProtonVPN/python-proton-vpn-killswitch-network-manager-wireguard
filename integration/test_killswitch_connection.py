@@ -3,7 +3,7 @@ import os
 import pytest
 import subprocess
 
-from proton.vpn.killswitch.backend.linux.networkmanager.killswitch_connection import (
+from proton.vpn.killswitch.backend.linux.wireguard.killswitch_connection import (
     KillSwitchConfig, KillSwitchConnectionHandler)
 from proton.vpn.killswitch.interface.exceptions import KillSwitchException
 
