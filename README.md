@@ -16,9 +16,9 @@ you have the documentation on how to do that.
 
 ### Known issues
 
-The component `proton-vpn-network-manager`, which is a direct dependency of this component, requires installing quite
-a few distribution packages. You can find more information on its own
-[readme file](https://gitlab.protontech.ch/ProtonVPN/linux/new-client/vpnconnection/python-protonvpn-network-manager/-/blob/develop/README.md). 
+This component depends on the PyGObject package. 
+To be able to pip install PyGObject, please check the required distribution packages in the
+[official documentation](https://pygobject.readthedocs.io/en/latest/devguide/dev_environ.html).
 
 ### Virtual environment
 

@@ -96,7 +96,7 @@ class NMClient:
     @classmethod
     def _assert_running_on_glib_loop_thread(cls):
         """
-        This method asserts that the thread running it is the one iterating
+        This method asserts that the thread running it is the one i:terating
         GLib's main loop.
 
         It's useful to call this method at the beginning of any code block
@@ -106,7 +106,8 @@ class NMClient:
         For more info:
         https://developer.gnome.org/documentation/tutorials/main-contexts.html#checking-threading
         """
-        assert cls._main_context.is_owner()
+        if not cls._main_context.is_owner():
+            raise RuntimeError("Code being run outside GLib's main loop.")
 
     @classmethod
     def _run_on_glib_loop_thread(cls, function, *args, **kwargs) -> Future:
@@ -252,16 +253,32 @@ class NMClient:
         return connection
 
     @classmethod
-    def _apply_connection(cls, device: NM.Device, connection: NM.RemoteConnection):
+    def _apply_connection_async(
+            cls, device: NM.Device, connection: NM.RemoteConnection, future: Future
+    ):
         cls._assert_running_on_glib_loop_thread()
 
-        # FIXME: use commit_changes_async and reapply_async.  # pylint: disable=fixme
+        def on_device_reapplied(device, result, _data=None):
+            try:
+                device.reapply_finish(result)
+                future.set_result(None)
+            except Exception as exc:  # pylint: disable=broad-except
+                future.set_exception(exc)
+
+        def on_connection_commited(connection, result, _data=None):
+            try:
+                connection.commit_changes_finish(result)
+                device.reapply_async(
+                    # Not sure if it's ok to always pass version_id and flags set to 0.
+                    connection, version_id=0, flags=0,
+                    cancellable=None, callback=on_device_reapplied
+                )
+            except Exception as exc:  # pylint: disable=broad-except
+                future.set_exception(exc)
+
         # By not saving the changes to disk, the route is gone after a restart.
-        connection.commit_changes(save_to_disk=False, cancellable=None)
-        device.reapply(
-            # Not sure if it's ok to always pass version_id and flags set to 0.
-            connection, version_id=0, flags=0,
-            cancellable=None
+        connection.commit_changes_async(
+            save_to_disk=False, cancellable=None, callback=on_connection_commited
         )
 
     @classmethod
@@ -277,22 +294,23 @@ class NMClient:
         :param old_server_ip: if specified, routes for this IP will be removed before
           adding the new one.
         """
-        future = Future()
+        route_added_future = _create_future()
 
         def _add_ipv4_route():
-            if old_server_ip:
-                print(f"removing route to {old_server_ip}")
-                cls._remove_ipv4_routes(device, old_server_ip)
-                print("route removed")
+            try:
+                if old_server_ip:
+                    cls._remove_ipv4_routes(device, old_server_ip)
 
-            gateway = cls._get_ipv4_gateway_from(device)
-            connection = cls._add_ipv4_route(device, new_server_ip, gateway)
-            cls._apply_connection(device, connection)
-            future.set_result(None)
+                gateway = cls._get_ipv4_gateway_from(device)
+                connection = cls._add_ipv4_route(device, new_server_ip, gateway)
+
+                cls._apply_connection_async(device, connection, route_added_future)
+            except Exception as exc:  # pylint: disable=broad-except
+                route_added_future.set_exception(exc)
 
         cls._run_on_glib_loop_thread(_add_ipv4_route)
 
-        return future
+        return route_added_future
 
     @classmethod
     def remove_route_from_device(cls, device: NM.Device, server_ip: str) -> Future:
@@ -300,16 +318,18 @@ class NMClient:
         Removes all the routes pointing to the specified server IP
         for the specified device.
         """
-        future = Future()
+        route_removed_future = _create_future()
 
         def _remove_ipv4_routes():
-            connection = cls._remove_ipv4_routes(device, server_ip)
-            cls._apply_connection(device, connection)
-            future.set_result(None)
+            try:
+                connection = cls._remove_ipv4_routes(device, server_ip)
+                cls._apply_connection_async(device, connection, route_removed_future)
+            except Exception as exc:  # pylint: disable=broad-except
+                route_removed_future.set_exception(exc)
 
         cls._run_on_glib_loop_thread(_remove_ipv4_routes)
 
-        return future
+        return route_removed_future
 
     def remove_connection_async(
             self, connection: NM.RemoteConnection
