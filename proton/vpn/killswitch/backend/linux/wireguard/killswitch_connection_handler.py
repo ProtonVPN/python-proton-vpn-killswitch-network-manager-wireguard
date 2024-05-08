@@ -58,7 +58,11 @@ async def _wrap_future(future: concurrent.futures.Future, timeout=10):
 class KillSwitchConnectionHandler:
     """Kill switch connection management."""
 
-    def __init__(self, nm_client: NMClient = None, config: KillSwitchGeneralConfig = None):
+    def __init__(
+            self, nm_client: NMClient = None,
+            config: KillSwitchGeneralConfig = None,
+            server_ip: str = None
+    ):
         self._nm_client = nm_client
         self._config = config
         self._ipv4_ks_settings = KillSwitchIPConfig(
@@ -78,6 +82,7 @@ class KillSwitchConnectionHandler:
             ignore_auto_dns=True,
             route_metric=95
         )
+        self._server_ip = server_ip
 
     @property
     def nm_client(self):
@@ -131,39 +136,50 @@ class KillSwitchConnectionHandler:
         )
         logger.debug(f"{'Non-permanent' if permanent else 'Permanent'} kill switch removed.")
 
-    async def add_vpn_server_route(self, new_server_ip: str, old_server_ip: str = None):
+    async def add_vpn_server_route(self, server_ip: str):
         """Add route to allow outgoing traffic to the specified IP."""
         await self._ensure_connectivity_check_is_disabled()
+
+        if not self.nm_client.is_monitoring_network_config_changes():
+            self._start_monitoring_network_config_changes()
 
         devices = self.nm_client.get_physical_devices()
         for device in devices:
             await _wrap_future(
                 self.nm_client.add_route_to_device(
-                    device, new_server_ip=new_server_ip,
-                    old_server_ip=old_server_ip
+                    device, new_server_ip=server_ip,
+                    old_server_ip=self._server_ip
                 )
             )
             # The new route doesn't seem to be available straight away.
             # For this reason, the routing table is polled until the route has been added.
             await self._wait_for_vpn_server_route(
-                new_server_ip, device.get_iface(), found=True
+                server_ip, device.get_iface(), found=True
             )
-        logger.debug("VPN server route added.")
 
-    async def remove_vpn_server_route(self, server_ip: str):
+        self._server_ip = server_ip
+
+    async def remove_vpn_server_route(self):
         """
         Remove a previously added VPN server route.
         If the route is not found then nothing happens.
         """
+        if self.nm_client.is_monitoring_network_config_changes():
+            self.nm_client.stop_monitoring_network_config_changes()
+
+        if not self._server_ip:
+            return
+
         devices = self.nm_client.get_physical_devices()
         for device in devices:
             await _wrap_future(
-                self.nm_client.remove_route_from_device(device, server_ip)
+                self.nm_client.remove_route_from_device(device, self._server_ip)
             )
             # The route doesn't seem to be removed straight away.
             # For this reason, the routing table is polled until the route has been removed.
-            await self._wait_for_vpn_server_route(server_ip, device.get_iface(), found=False)
-        logger.debug("VPN server route removed.")
+            await self._wait_for_vpn_server_route(self._server_ip, device.get_iface(), found=False)
+
+        self._server_ip = None
 
     @staticmethod
     async def _run_ip_route_command():
@@ -191,6 +207,18 @@ class KillSwitchConnectionHandler:
         raise TimeoutError(
             f"Error waiting for server route to be {'added' if found else 'removed'}"
         )
+
+    def _start_monitoring_network_config_changes(self):
+        loop = asyncio.get_running_loop()
+
+        def on_active_connection_changed(active_connection):
+            device = active_connection.get_devices()[0]
+            gateway = active_connection.get_ip4_config().get_gateway()
+            logger.info(f"Interface {device.get_iface()} switched to gateway {gateway}")
+            future = self.nm_client.add_route_to_device(device, self._server_ip, gateway)
+            future.add_done_callback(lambda f: loop.call_soon_threadsafe(f.result))
+
+        self.nm_client.start_monitoring_network_config_changes(on_active_connection_changed)
 
     async def add_ipv6_leak_protection(self):
         """Adds IPv6 kill switch to prevent IPv6 leaks while using IPv4."""

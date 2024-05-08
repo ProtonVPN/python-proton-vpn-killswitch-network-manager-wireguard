@@ -33,9 +33,9 @@ def vpn_server():
 @pytest.mark.asyncio
 async def test_enable_without_vpn_server_adds_ks_connection():
     ks_handler_mock = AsyncMock()
-    nm_killswitch = WGKillSwitch(ks_handler_mock)
+    wg_ks = WGKillSwitch(ks_handler_mock)
 
-    await nm_killswitch.enable()
+    await wg_ks.enable()
 
     assert ks_handler_mock.method_calls == [
         call.add_kill_switch_connection(False)
@@ -45,26 +45,26 @@ async def test_enable_without_vpn_server_adds_ks_connection():
 @pytest.mark.asyncio
 async def test_enable_with_vpn_server_adds_ks_connection_and_route_for_server(vpn_server):
     ks_handler_mock = AsyncMock()
-    nm_killswitch = WGKillSwitch(ks_handler_mock)
+    wg_ks = WGKillSwitch(ks_handler_mock)
 
-    await nm_killswitch.enable(vpn_server)
+    await wg_ks.enable(vpn_server)
 
     assert ks_handler_mock.method_calls == [
         call.add_kill_switch_connection(False),
-        call.add_vpn_server_route(new_server_ip=vpn_server.server_ip, old_server_ip=None)
+        call.add_vpn_server_route(server_ip=vpn_server.server_ip)
     ]
 
 
 @pytest.mark.asyncio
 async def test_disable_killswitch_removes_full_and_route_for_server():
     ks_handler_mock = AsyncMock()
-    nm_killswitch = WGKillSwitch(ks_handler_mock, server_ip="1.2.3.4")
+    wg_ks = WGKillSwitch(ks_handler_mock)
 
-    await nm_killswitch.disable()
+    await wg_ks.disable()
 
     assert ks_handler_mock.method_calls == [
         call.remove_killswitch_connection(),
-        call.remove_vpn_server_route("1.2.3.4")
+        call.remove_vpn_server_route()
     ]
 
 
@@ -72,8 +72,8 @@ async def test_disable_killswitch_removes_full_and_route_for_server():
 async def test_enable_ipv6_leak_protection_adds_ipv6_ks():
     ks_handler_mock = AsyncMock()
 
-    nm_killswitch = WGKillSwitch(ks_handler_mock)
-    await nm_killswitch.enable_ipv6_leak_protection()
+    wg_ks = WGKillSwitch(ks_handler_mock)
+    await wg_ks.enable_ipv6_leak_protection()
 
     assert ks_handler_mock.method_calls == [
         call.add_ipv6_leak_protection()
@@ -84,8 +84,8 @@ async def test_enable_ipv6_leak_protection_adds_ipv6_ks():
 async def test_disable_ipv6_leak_protection_removes_ipv6_ks():
     ks_handler_mock = AsyncMock()
 
-    nm_killswitch = WGKillSwitch(ks_handler_mock)
-    await nm_killswitch.disable_ipv6_leak_protection()
+    wg_ks = WGKillSwitch(ks_handler_mock)
+    await wg_ks.disable_ipv6_leak_protection()
 
     assert ks_handler_mock.method_calls == [
         call.remove_ipv6_leak_protection()

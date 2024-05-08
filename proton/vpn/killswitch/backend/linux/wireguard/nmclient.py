@@ -126,9 +126,10 @@ class NMClient:
 
     def __init__(self):
         self.initialize_nm_client_singleton()
+        self._signal_handlers = []
 
     def add_connection_async(
-        self, connection: NM.Connection, save_to_disk: bool = False
+            self, connection: NM.Connection, save_to_disk: bool = False
     ) -> Future:
         """
         Adds a new connection asynchronously.
@@ -138,28 +139,32 @@ class NMClient:
         """
         future_conn_activated = _create_future()
 
-        def _on_connection_added(nm_client, res, _user_data):
+        def _on_interface_state_changed(_device, new_state, _old_state, _reason):
+            """
+            Monitors kill switch interface state changes and resolves
+            the future as soon as the interface reaches the activated state
+            """
+            logger.debug(
+                f"{connection.get_interface_name()} interface state changed "
+                f"to {NM.DeviceState(new_state).value_name}"
+            )
             if (
-                    not nm_client or not res or
-                    not (remote_connection := nm_client.add_connection_finish(res))
+                    NM.DeviceState(new_state) == NM.DeviceState.ACTIVATED
+                    and not future_conn_activated.done()
             ):
-                future_conn_activated.set_exception(
-                    RuntimeError(f"Error setting adding KS connection: {nm_client=}, {res=}")
-                )
+                future_conn_activated.set_result(None)
+
+        def _on_interface_added(_nm_client, device):
+            """
+            Monitors interface creation. As soon as the kill switch interface
+            is created it sets up the call back to monitor interface state changes.
+            """
+            logger.debug(
+                f"{device.get_iface()} interface added in state {device.get_state().value_name}"
+            )
+            if not device.get_iface() == connection.get_interface_name():
                 return
 
-            def _on_interface_state_changed(_device, new_state, _old_state, _reason):
-                logger.debug(
-                    f"{remote_connection.get_interface_name()} interface state changed "
-                    f"to {NM.DeviceState(new_state).value_name}"
-                )
-                if (
-                        NM.DeviceState(new_state) == NM.DeviceState.ACTIVATED
-                        and not future_conn_activated.done()
-                ):
-                    future_conn_activated.set_result(remote_connection)
-
-            device = self._nm_client.get_device_by_iface(remote_connection.get_interface_name())
             handler_id = device.connect("state-changed", _on_interface_state_changed)
             future_conn_activated.add_done_callback(
                 lambda f: self._run_on_glib_loop_thread(
@@ -167,11 +172,29 @@ class NMClient:
                 ).result()
             )
 
-            # The callback is manually called here because sometimes is never called. I assume that
-            # when we connect to the state-changes signal the interface has already been activated.
-            _on_interface_state_changed(device, device.get_state().real, None, None)
+        def _on_connection_added(nm_client, res, _user_data):
+            try:
+                # Make sure exceptions creating the connection are passed to the future.
+                nm_client.add_connection_finish(res)
+            except Exception as exc:  # pylint: disable=broad-except
+                future_conn_activated.set_exception(
+                    RuntimeError(
+                        f"Error adding KS connection: {exc}"
+                    ).with_traceback(exc.__traceback__)
+                )
+                return
 
         def _add_connection_async():
+            # Set up interface connection monitoring, which resolves the future
+            # once the kill switch is active.
+            handler_id = self._nm_client.connect("device-added", _on_interface_added)
+            future_conn_activated.add_done_callback(
+                lambda f: self._run_on_glib_loop_thread(
+                    GObject.signal_handler_disconnect, self._nm_client, handler_id
+                ).result()
+            )
+
+            # Add kill switch connection asynchronously.
             self._nm_client.add_connection_async(
                 connection=connection,
                 save_to_disk=save_to_disk,
@@ -194,32 +217,70 @@ class NMClient:
             )
         ]
 
+    def _is_ethernet_or_wifi_connection(self, active_connection: NM.ActiveConnection):
+        return active_connection.props.type in (
+            NM.SETTING_WIRED_SETTING_NAME, NM.SETTING_WIRELESS_SETTING_NAME
+        )
+
+    def get_ethernet_and_wifi_connections(self) -> List[NM.ActiveConnection]:
+        """Returns the list of ethernet and wifi connections."""
+        return [
+            ac for ac in self._nm_client.get_active_connections()
+            if self._is_ethernet_or_wifi_connection(ac)
+        ]
+
+    def is_monitoring_network_config_changes(self) -> bool:
+        """
+        Returns whether monitoring of network configuration changes is already
+        enabled or not.
+        """
+        return bool(self._signal_handlers)
+
+    def start_monitoring_network_config_changes(self, callback):
+        """Starts monitoring network configuration changes."""
+        if self.is_monitoring_network_config_changes():
+            raise RuntimeError("Network config changes are already being monitored.")
+
+        def on_active_connection_changed(active_connection, changed_field):
+            if (
+                    changed_field.name == NM.DEVICE_IP4_CONFIG and
+                    active_connection.get_ip4_config() and
+                    active_connection.get_ip4_config().get_gateway()
+            ):
+                callback(active_connection)
+
+        # Monitor current active (wifi/ethernet) connection changes.
+        connections = self.get_ethernet_and_wifi_connections()
+        for con in connections:
+            handler_id = con.connect("notify", on_active_connection_changed)
+            self._signal_handlers.append((con, handler_id))
+
+        def on_active_connection_added(_nm_client, active_connection):
+            if self._is_ethernet_or_wifi_connection(active_connection):
+                # If the new active connection is a wifi/ethernet connection then
+                # start monitoring its config changes.
+                handler_id = active_connection.connect("notify", on_active_connection_changed)
+                self._signal_handlers.append((active_connection, handler_id))
+
+        # Monitor new active connections.
+        handler_id = self._nm_client.connect("active-connection-added", on_active_connection_added)
+        self._signal_handlers.append((self._nm_client, handler_id))
+
+    def stop_monitoring_network_config_changes(self):
+        """Stops monitoring network configuration changes."""
+        for instance, handler_id in self._signal_handlers:
+            instance.disconnect(handler_id)
+
+        self._signal_handlers.clear()
+
     @classmethod
-    def _get_ipv4_gateway_from(cls, device: NM.Device) -> str:
+    def _add_ipv4_route(
+            cls, active_connection: NM.ActiveConnection,
+            server_ip: str, gateway: str
+    ):
         cls._assert_running_on_glib_loop_thread()
 
-        connection = device.get_active_connection().get_connection()
-        config = connection.get_setting_ip4_config()
-        gateway = config.get_gateway()
-
-        if not gateway:
-            # If a static gateway is not found, try to get it from the DHCP config.
-            dhcp_config = device.get_dhcp4_config()
-            if dhcp_config and "routers" in dhcp_config.get_options():
-                gateway = dhcp_config.get_options()["routers"]
-                # There may be multiple gateways separated by comma. We get the first one
-                gateway = gateway.split(",")[0].strip()
-
-        if not gateway:
-            raise RuntimeError(f"Gateway not found for interface {device.get_iface()}")
-
-        return gateway
-
-    @classmethod
-    def _add_ipv4_route(cls, device, server_ip: str, gateway: str) -> NM.RemoteConnection:
-        cls._assert_running_on_glib_loop_thread()
-
-        connection = device.get_active_connection().get_connection()
+        connection = active_connection.get_connection()
         config = connection.get_setting_ip4_config()
 
         config.add_route(
@@ -232,13 +293,14 @@ class NMClient:
             )
         )
 
-        return connection
-
     @classmethod
-    def _remove_ipv4_routes(cls, device, server_ip: str) -> NM.RemoteConnection:
+    def _remove_ipv4_routes(
+            cls, active_connection: NM.ActiveConnection,
+            server_ip: str
+    ):
         cls._assert_running_on_glib_loop_thread()
 
-        connection = device.get_active_connection().get_connection()
+        connection = active_connection.get_connection()
         config = connection.get_setting_ip4_config()
 
         routes_to_remove = []
@@ -250,13 +312,13 @@ class NMClient:
         for route in routes_to_remove:
             config.remove_route_by_value(route)
 
-        return connection
-
     @classmethod
     def _apply_connection_async(
-            cls, device: NM.Device, connection: NM.RemoteConnection, future: Future
+            cls, active_connection: NM.ActiveConnection, future: Future
     ):
         cls._assert_running_on_glib_loop_thread()
+
+        device = active_connection.get_devices()[0]
 
         def on_device_reapplied(device, result, _data=None):
             try:
@@ -277,7 +339,7 @@ class NMClient:
                 future.set_exception(exc)
 
         # By not saving the changes to disk, the route is gone after a restart.
-        connection.commit_changes_async(
+        active_connection.get_connection().commit_changes_async(
             save_to_disk=False, cancellable=None, callback=on_connection_commited
         )
 
@@ -295,16 +357,20 @@ class NMClient:
           adding the new one.
         """
         route_added_future = _create_future()
+        active_connection = device.get_active_connection()
 
         def _add_ipv4_route():
             try:
                 if old_server_ip:
-                    cls._remove_ipv4_routes(device, old_server_ip)
+                    cls._remove_ipv4_routes(active_connection, old_server_ip)
 
-                gateway = cls._get_ipv4_gateway_from(device)
-                connection = cls._add_ipv4_route(device, new_server_ip, gateway)
+                # Remove any existing routes to the new server that may have been left over.
+                cls._remove_ipv4_routes(active_connection, new_server_ip)
 
-                cls._apply_connection_async(device, connection, route_added_future)
+                gateway = active_connection.get_ip4_config().get_gateway()
+                cls._add_ipv4_route(active_connection, new_server_ip, gateway)
+
+                cls._apply_connection_async(active_connection, route_added_future)
             except Exception as exc:  # pylint: disable=broad-except
                 route_added_future.set_exception(exc)
 
@@ -319,11 +385,12 @@ class NMClient:
         for the specified device.
         """
         route_removed_future = _create_future()
+        active_connection = device.get_active_connection()
 
         def _remove_ipv4_routes():
             try:
-                connection = cls._remove_ipv4_routes(device, server_ip)
-                cls._apply_connection_async(device, connection, route_removed_future)
+                cls._remove_ipv4_routes(active_connection, server_ip)
+                cls._apply_connection_async(active_connection, route_removed_future)
             except Exception as exc:  # pylint: disable=broad-except
                 route_removed_future.set_exception(exc)
 
@@ -343,29 +410,27 @@ class NMClient:
         future_interface_removed = _create_future()
 
         def _on_connection_removed(connection, result, _user_data):
-            if not connection or not result or not connection.delete_finish(result):
+            try:
+                connection.delete_finish(result)
+            except Exception as exc:  # pylint: disable=broad-except
                 future_interface_removed.set_exception(
-                    RuntimeError(f"Error removing KS connection: {connection=}, {result=}")
+                    RuntimeError(
+                        f"Error removing KS connection: {exc}"
+                    ).with_traceback(exc.__traceback__)
                 )
-                return
 
-        def _on_interface_state_changed(device, new_state, _old_state, _reason):
+        def _on_interface_removed(_nm_client, device):
             logger.debug(
-                f"{device.get_iface()} interface state changed to "
-                f"{NM.DeviceState(new_state).value_name}"
+                f"{device.get_iface()} was removed."
             )
-            if (
-                    NM.DeviceState(new_state) == NM.DeviceState.DISCONNECTED
-                    and not future_interface_removed.done()
-            ):
+            if device.get_iface() == connection.get_interface_name():
                 future_interface_removed.set_result(None)
 
         def _remove_connection_async():
-            device = self._nm_client.get_device_by_iface(connection.get_interface_name())
-            handler_id = device.connect("state-changed", _on_interface_state_changed)
+            handler_id = self._nm_client.connect("device-removed", _on_interface_removed)
             future_interface_removed.add_done_callback(
                 lambda f: self._run_on_glib_loop_thread(
-                    GObject.signal_handler_disconnect, device, handler_id
+                    GObject.signal_handler_disconnect, self._nm_client, handler_id
                 ).result()
             )
 

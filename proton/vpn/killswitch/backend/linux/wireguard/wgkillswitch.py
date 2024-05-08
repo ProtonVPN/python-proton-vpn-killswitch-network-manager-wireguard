@@ -47,12 +47,10 @@ class WGKillSwitch(KillSwitch):
     """
 
     def __init__(
-            self, ks_handler: KillSwitchConnectionHandler = None,
-            server_ip: Optional[int] = None
+            self, ks_handler: Optional[KillSwitchConnectionHandler] = None
     ):
         self._ks_handler = ks_handler or KillSwitchConnectionHandler()
         super().__init__()
-        self._server_ip = server_ip
 
     async def enable(
             self, vpn_server: Optional["VPNServer"] = None, permanent: bool = False
@@ -66,20 +64,13 @@ class WGKillSwitch(KillSwitch):
 
         # Allow traffic going to the VPN server IP.
         await self._ks_handler.add_vpn_server_route(
-            new_server_ip=vpn_server.server_ip, old_server_ip=self._server_ip
+            server_ip=vpn_server.server_ip
         )
-        self._server_ip = vpn_server.server_ip
-
-        # FIXME: a thread should be spawned to do periodic checks and to  # pylint: disable=fixme
-        #  reapply the route to the vpn server on each ethernet/wifi
-        #  interface if the gateway IP changed (e.g. when changing of network)
 
     async def disable(self):
         """Disables general kill switch."""
         await self._ks_handler.remove_killswitch_connection()
-        if self._server_ip:
-            await self._ks_handler.remove_vpn_server_route(self._server_ip)
-            self._server_ip = None
+        await self._ks_handler.remove_vpn_server_route()
 
     async def enable_ipv6_leak_protection(self, permanent: bool = False):
         """Enables IPv6 kill switch."""
