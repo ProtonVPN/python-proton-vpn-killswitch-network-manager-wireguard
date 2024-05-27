@@ -87,11 +87,15 @@ class WGKillSwitch(KillSwitch):
     def _get_priority() -> int:
         # The priority value is higher than the previous KS implementation (100)
         # so that this implementation takes precedence if both are installed.
-        return 200
+        return 101
 
     @staticmethod
-    def _validate():
-        try:
-            return KillSwitchConnectionHandler().is_network_manager_running
-        except (ModuleNotFoundError, ImportError):
-            return False
+    def _validate(validate_params: dict = None):
+        if validate_params is not None and validate_params.get("protocol") == "wireguard":
+            try:
+                KillSwitchConnectionHandler().is_network_manager_running  # noqa pylint: disable=expression-not-assigned
+                return True
+            except (ModuleNotFoundError, ImportError):
+                pass
+
+        return False

@@ -1,5 +1,5 @@
 %define unmangled_name proton-vpn-killswitch-network-manager-wireguard
-%define version 0.0.3
+%define version 0.0.4
 %define release 1
 
 Prefix: %{_prefix}
@@ -52,6 +52,9 @@ python3 setup.py install --single-version-externally-managed -O1 --root=$RPM_BUI
 %defattr(-,root,root)
 
 %changelog
+* Mon May 27 2024 Alexandru Cheltuitor <alexandru.cheltuitor@proton.ch> 0.0.4
+- Fix wireguard connection when switching networks
+
 * Wed May 22 2024 Josep Llaneras <josep.llaneras@proton.ch> 0.0.3
 - Fix wireguard connection when switching networks
 

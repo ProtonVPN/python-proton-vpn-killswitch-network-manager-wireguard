@@ -16,10 +16,11 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with ProtonVPN.  If not, see <https://www.gnu.org/licenses/>.
 """
-from unittest.mock import Mock, AsyncMock, call
+from unittest.mock import Mock, AsyncMock, call, PropertyMock
 import pytest
 
 from proton.vpn.killswitch.backend.linux.wireguard import WGKillSwitch
+from proton.vpn.killswitch.backend.linux.wireguard.killswitch_connection_handler import KillSwitchConnectionHandler
 
 
 @pytest.fixture
@@ -91,3 +92,20 @@ async def test_disable_ipv6_leak_protection_removes_ipv6_ks():
         call.remove_ipv6_leak_protection()
     ]
 
+
+@pytest.fixture
+def monkey_patch_connection_handler():
+    original = KillSwitchConnectionHandler.is_network_manager_running
+    KillSwitchConnectionHandler.is_network_manager_running = PropertyMock(return_value=True)
+    yield KillSwitchConnectionHandler
+    KillSwitchConnectionHandler.is_network_manager_running = original
+
+
+@pytest.mark.parametrize("validate_params_dict, assert_bool", [
+    (None, False),
+    ({}, False),
+    ({"protocol": "openvpn"}, False),
+    ({"protocol": "wireguard"}, True)
+])
+def test_backend_validate(validate_params_dict, assert_bool, monkey_patch_connection_handler):
+    assert WGKillSwitch._validate(validate_params_dict) == assert_bool

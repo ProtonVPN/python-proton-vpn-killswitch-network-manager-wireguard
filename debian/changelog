@@ -1,3 +1,9 @@
+proton-vpn-killswitch-network-manager-wireguard (0.0.4) unstable; urgency=medium
+
+  * Ensure that the validate method dynamically evaluates the kill switch implementation  
+
+ -- Alexandru Cheltuitor <alexandru.cheltuitor@proton.ch>  Mon, 27 May 2024 11:00:00 +0200
+
 proton-vpn-killswitch-network-manager-wireguard (0.0.3) unstable; urgency=medium
 
   * Fix wireguard connection when switching networks
