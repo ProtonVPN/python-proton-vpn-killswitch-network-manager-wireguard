@@ -1,5 +1,5 @@
 %define unmangled_name proton-vpn-killswitch-network-manager-wireguard
-%define version 0.0.4
+%define version 0.0.5
 %define release 1
 
 Prefix: %{_prefix}
@@ -52,14 +52,17 @@ python3 setup.py install --single-version-externally-managed -O1 --root=$RPM_BUI
 %defattr(-,root,root)
 
 %changelog
+* Thu Jun 13 2024 Alexandru Cheltuitor <alexandru.cheltuitor@proton.ch> 0.0.5
+- Change kill switch connection IPv4 config from manual to auto.
+
 * Mon May 27 2024 Alexandru Cheltuitor <alexandru.cheltuitor@proton.ch> 0.0.4
-- Fix wireguard connection when switching networks
+- Fix wireguard connection when switching networks.
 
 * Wed May 22 2024 Josep Llaneras <josep.llaneras@proton.ch> 0.0.3
-- Fix wireguard connection when switching networks
+- Fix wireguard connection when switching networks.
 
 * Wed Apr 24 2024 Josep Llaneras <josep.llaneras@proton.ch> 0.0.2
-- Fix connection glitch after adding route to VPN server
+- Fix connection glitch after adding route to VPN server.
 
 * Fri Apr 12 2024 Josep Llaneras <josep.llaneras@proton.ch> 0.0.1
-- Adapt kill switch to wireguard protocol
+- Adapt kill switch to wireguard protocol.
