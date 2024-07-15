@@ -24,7 +24,7 @@ BuildRequires: python3-gobject
 BuildRequires: NetworkManager
 BuildRequires: python3-packaging
 
-Requires: python3-proton-vpn-killswitch
+Requires: python3-proton-vpn-api-core
 Requires: python3-proton-vpn-logger
 Requires: python3-gobject
 Requires: NetworkManager
