@@ -16,7 +16,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with ProtonVPN.  If not, see <https://www.gnu.org/licenses/>.
 """
-from unittest.mock import Mock, AsyncMock, call, PropertyMock
+from unittest.mock import Mock, AsyncMock, call, PropertyMock, patch
 import pytest
 
 from proton.vpn.killswitch.backend.linux.wireguard import WGKillSwitch
@@ -107,5 +107,8 @@ def monkey_patch_connection_handler():
     ({"protocol": "openvpn"}, False),
     ({"protocol": "wireguard"}, True)
 ])
-def test_backend_validate(validate_params_dict, assert_bool, monkey_patch_connection_handler):
+@patch("proton.vpn.killswitch.backend.linux.wireguard.wgkillswitch.subprocess")
+@patch("proton.vpn.killswitch.backend.linux.wireguard.wgkillswitch.is_ipv6_disabled")
+def test_backend_validate(mock_is_ipv6_disabled, mock_subprocess, validate_params_dict, assert_bool, monkey_patch_connection_handler):
+    mock_is_ipv6_disabled.return_value = False
     assert WGKillSwitch._validate(validate_params_dict) == assert_bool

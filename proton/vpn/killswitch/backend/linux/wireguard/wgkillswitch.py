@@ -21,9 +21,12 @@ along with ProtonVPN.  If not, see <https://www.gnu.org/licenses/>.
 """
 from typing import Optional, TYPE_CHECKING
 
+import subprocess  # nosec B404:blacklist
+
 from proton.vpn.killswitch.interface import KillSwitch
 from proton.vpn.killswitch.backend.linux.wireguard.killswitch_connection_handler\
     import KillSwitchConnectionHandler
+from proton.vpn.killswitch.backend.linux.wireguard.util import is_ipv6_disabled
 from proton.vpn import logging
 
 if TYPE_CHECKING:
@@ -91,11 +94,32 @@ class WGKillSwitch(KillSwitch):
 
     @staticmethod
     def _validate(validate_params: dict = None):
-        if validate_params is not None and validate_params.get("protocol") == "wireguard":
-            try:
-                KillSwitchConnectionHandler().is_network_manager_running  # noqa pylint: disable=expression-not-assigned
-                return True
-            except (ModuleNotFoundError, ImportError):
-                pass
+        if not validate_params or validate_params.get("protocol") != "wireguard":
+            return False
 
-        return False
+        try:
+            KillSwitchConnectionHandler().is_network_manager_running  # noqa pylint: disable=expression-not-assigned
+        except (ModuleNotFoundError, ImportError):
+            logger.error("NetworkManager is not running.")
+            return False
+
+        try:
+            subprocess.run(
+                ["/usr/bin/apt", "show", "libnetplan1"],
+                capture_output=True,
+                check=True, shell=False
+            )  # nosec B603:subprocess_without_shell_equals_true
+        except subprocess.CalledProcessError:
+            # if the apt command or the libnetplan1 package are not available then it's fine.
+            return True
+
+        # if libnetplan1 is installed (most probably ubuntu 24)
+        # and IPv6 is disabled then the KS backend becomes invalid.
+        if is_ipv6_disabled():
+            logger.error(
+                "Kill switch could not be enabled using libnetplan1 "
+                "while IPv6 is disabled via the ipv6.disabled=1 kernel parameter."
+            )
+            return False
+
+        return True
