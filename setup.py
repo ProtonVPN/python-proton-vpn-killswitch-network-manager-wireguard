@@ -4,7 +4,7 @@ from setuptools import setup, find_namespace_packages
 
 setup(
     name="proton-vpn-killswitch-network-manager-wireguard",
-    version="0.1.3",
+    version="0.1.4",
     description="Proton VPN kill switch for Wireguard",
     author="Proton AG",
     author_email="contact@protonmail.com",

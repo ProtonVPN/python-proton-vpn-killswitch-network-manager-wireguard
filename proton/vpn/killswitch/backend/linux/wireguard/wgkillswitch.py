@@ -97,29 +97,36 @@ class WGKillSwitch(KillSwitch):
         if not validate_params or validate_params.get("protocol") != "wireguard":
             return False
 
+        is_libnetplan1_installed = False
+
         try:
             KillSwitchConnectionHandler().is_network_manager_running  # noqa pylint: disable=expression-not-assigned
         except (ModuleNotFoundError, ImportError):
             logger.error("NetworkManager is not running.")
             return False
 
+        # libnetplan0 is the first version that is present in Ubuntu 22.04. In Ubuntu 24.04
+        # the package name changes to libnetplan1, and it's not compatible with this kill
+        # switch implementation when IPv6 is disabled via the ipv6.disabled kernel option.
         try:
             subprocess.run(
                 ["/usr/bin/apt", "show", "libnetplan1"],
                 capture_output=True,
                 check=True, shell=False
             )  # nosec B603:subprocess_without_shell_equals_true
+            is_libnetplan1_installed = True
         except (FileNotFoundError, subprocess.CalledProcessError):
             # if the apt command or the libnetplan1 package are not available then it's fine.
-            return True
+            pass
 
         # if libnetplan1 is installed (most probably ubuntu 24)
-        # and IPv6 is disabled then the KS backend becomes invalid.
-        if is_ipv6_disabled():
+        # and IPv6 is disabled then the KS backend won't work and we log it.
+        # Note: should be fixed once https://github.com/canonical/netplan/pull/495
+        # is merged and pushed to Ubuntu repos.
+        if is_libnetplan1_installed and is_ipv6_disabled():
             logger.error(
-                "Kill switch could not be enabled using libnetplan1 "
+                "Kill switch does not work with libnetplan1 "
                 "while IPv6 is disabled via the ipv6.disabled=1 kernel parameter."
             )
-            return False
 
         return True
