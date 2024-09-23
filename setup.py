@@ -4,15 +4,15 @@ from setuptools import setup, find_namespace_packages
 
 setup(
     name="proton-vpn-killswitch-network-manager-wireguard",
-    version="0.1.4",
+    version="0.2.0",
     description="Proton VPN kill switch for Wireguard",
     author="Proton AG",
-    author_email="contact@protonmail.com",
-    url="https://github.com/ProtonVPN/pyhon-proton-vpn-killswitch-network-manager-wireguard",
+    author_email="opensource@proton.me",
+    url="https://github.com/ProtonVPN/python-proton-vpn-killswitch-network-manager-wireguard",
     packages=find_namespace_packages(include=['proton.vpn.killswitch.backend.linux.wireguard']),
     include_package_data=True,
     python_requires=">=3.8",
-    install_requires=["proton-vpn-api-core", "proton-vpn-logger", "pygobject", "pycairo", "packaging"],
+    install_requires=["proton-vpn-api-core", "pygobject", "packaging"],
     extras_require={
         "development": ["wheel", "pytest", "pytest-cov", "pytest-asyncio", "flake8", "pylint==2.15.5"]
     },
