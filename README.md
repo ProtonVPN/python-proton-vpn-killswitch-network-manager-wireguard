@@ -1,3 +1,6 @@
+
+> :warning: **This module is now legacy**: The same functionality is now in python-proton-network-manager module, version `0.9.0` and upwards.
+
 # Proton VPN Kill Switch for Wireguard
 
 The `proton-vpn-killswitch-networ-managerwireguard` component is the implementation of the `proton-vpn-killswitch`
